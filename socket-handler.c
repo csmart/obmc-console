@@ -25,6 +25,7 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <endian.h>
 
 #include <sys/socket.h>
@@ -32,7 +33,8 @@
 
 #include "console-server.h"
 
-const size_t buffer_size_max = 100 * 1024;
+const size_t buffer_size_max = 100 * 1;
+int flowctl;
 
 struct client {
 	struct poller	*poller;
@@ -40,6 +42,7 @@ struct client {
 	uint8_t		*buf;
 	size_t		buf_alloc;
 	size_t		buf_len;
+	bool		flowctl;
 };
 
 struct socket_handler {
@@ -94,13 +97,33 @@ static ssize_t client_write_data(struct client *client, uint8_t *buf,
 	ssize_t rc;
 
 	for (pos = 0; pos < len; pos += rc) {
+		//printf("printing to client: %d\n", client->fd);
 		rc = write(client->fd, buf + pos, len - pos);
 		if (rc < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				break;
+			// so if this would block, then just break out
+			if (errno == EAGAIN || errno == EWOULDBLOCK){
+				printf("got blocking error on fd: %d\n", client->fd);
+				// set socket to BLOCKING
+				//fcntl(client->fd, F_SETFL, fcntl(client->fd,F_GETFL) & ~O_NONBLOCK);
+				printf("flow control on, %lld %lld client: %d\n", (unsigned long long)(client->buf_len), (unsigned long long)(len), client->fd);
+				
+				// do flow control on upstream
+				printf("flowctl toggle on (should be 0): %d\n" , flowctl_toggle(0));
+				
+				// tag that this client caused flowctl
+				client->flowctl = 1;
+				flowctl++;
+				printf("flowctl client: %d\n", flowctl);
 
-			if (errno == EINTR)
+				rc=0;
 				continue;
+				//break;
+			}
+
+			if (errno == EINTR){
+				printf("got error on fd: %d\n", client->fd);
+				continue;
+			}
 
 			return -1;
 		}
@@ -137,6 +160,26 @@ static enum poller_ret client_poll(struct handler *handler,
 		client->buf_len -= len;
 		memmove(client->buf, client->buf + len,
 				client->buf_len);
+
+		if (client->buf_len == 0) {
+			printf("buffer is ZERO for client: %d\n", client->fd);
+			// set socket to BLOCKING
+			//fcntl(client->fd, F_SETFL, fcntl(client->fd,F_GETFL) | O_NONBLOCK);
+			printf("flow control off, %lld %lld client: %d\n", (unsigned long long)(client->buf_len), (unsigned long long)(len), client->fd);
+			
+			// tag that this client caused flowctl
+			// do flow control on upstream
+			client->flowctl = 0;
+			flowctl--;
+			if (flowctl == 0) {
+				printf("flowctl toggle (should be 0): %d\n" , flowctl_toggle(1));
+			}
+			
+			printf("flowctl client: %d\n", flowctl);
+		} else {
+			printf("buffer not zero for client: %d\n", client->fd);
+		}
+
 	}
 
 	return POLLER_OK;
@@ -154,6 +197,23 @@ static int client_queue_data(struct client *client, uint8_t *buf, size_t len)
 			client->buf_alloc = 2048;
 		client->buf_alloc *= 2;
 
+		/*
+		if (client->buf_len + len > 2048) {
+			// set socket to BLOCKING
+			fcntl(client->fd, F_SETFL, fcntl(client->fd,F_GETFL) & ~O_NONBLOCK);
+			printf("flow control on, %lld %lld client: %d\n", (unsigned long long)(client->buf_len), (unsigned long long)(len)), client->fd);
+			
+			// do flow control on upstream
+			printf("flowctl toggle (should be 0): %d\n" , flowctl_toggle(0));
+			
+			// tag that this client caused flowctl
+			client->flowctl = 1;
+			flowctl++;
+			printf("flowctl client: %d\n", flowctl);
+		}
+		*/
+
+		// should never hit this
 		if (client->buf_alloc > buffer_size_max)
 			return -1;
 
@@ -178,6 +238,18 @@ static int client_send_or_queue(struct client *client, uint8_t *buf, size_t len)
 		if (rc)
 			return -1;
 	}
+
+	/*
+	// re-enable flow
+	if (client->flowctl && client->buf_len < 2048){
+		flowctl--;
+		if (flowctl == 0){
+			printf("flowctl toggle (should be 0): %d\n" , flowctl_toggle(1));;
+			// re-enable flow
+		}
+		printf("flowctl clients: %d client: %d\n" , flowctl, client->fd);
+	}
+	*/
 
 	return 0;
 }

@@ -22,8 +22,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <termios.h>
 
 #include "console-server.h"
+
+int console_tty_fd;
+struct console {
+	const char	*tty_kname;
+	char		*tty_sysfs_devnode;
+	char		*tty_dev;
+	int		tty_sirq;
+	int		tty_lpc_addr;
+	int		tty_fd;
+
+	struct handler	**handlers;
+	int		n_handlers;
+
+	struct poller	**pollers;
+	int		n_pollers;
+
+	struct pollfd	*pollfds;
+};
 
 struct tty_handler {
 	struct handler	handler;
@@ -67,6 +86,7 @@ static int tty_init(struct handler *handler, struct console *console,
 	char *tty_path;
 	int rc, flags;
 
+	console_tty_fd = console->tty_fd;
 	tty_name = config_get_value(config, "local-tty");
 	if (!tty_name)
 		return -1;
@@ -120,4 +140,9 @@ static struct tty_handler tty_handler = {
 };
 
 console_register_handler(&tty_handler.handler);
+
+int flowctl_toggle(bool flowctl){
+	int fd = console_tty_fd;
+	return tcflow(fd, flowctl == 1 ? TCION : TCIOFF);
+}
 

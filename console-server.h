@@ -93,3 +93,5 @@ int write_buf_to_fd(int fd, const uint8_t *buf, size_t len);
 	do { \
 		char __c[(c)?1:-1] __attribute__((unused)); \
 	} while (0)
+
+extern int flowctl_toggle(bool flowctl);

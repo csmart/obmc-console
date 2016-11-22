@@ -463,6 +463,7 @@ static void sighandler(int signal)
 		sigint = true;
 }
 
+
 int run_console(struct console *console)
 {
 	sighandler_t sighandler_save;

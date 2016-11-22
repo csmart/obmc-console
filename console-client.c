@@ -44,6 +44,7 @@ struct console_client {
 	bool		newline;
 };
 
+
 static const uint8_t esc_str[] = { '~', '.' };
 
 static enum process_rc process_tty(struct console_client *client)
@@ -111,6 +112,7 @@ static int process_console(struct console_client *client)
 	int len, rc;
 
 	len = read(client->console_sd, buf, sizeof(buf));
+	usleep(500000);
 	if (len < 0) {
 		warn("Can't read from server");
 		return PROCESS_ERR;
